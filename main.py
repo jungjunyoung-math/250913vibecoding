@@ -1,62 +1,104 @@
+# app.py
 import streamlit as st
+import pandas as pd
+import altair as alt
+import os
 
-st.set_page_config(page_title="삼각형 탐험 🏕️", page_icon="📐")
+# 페이지 기본 설정
+st.set_page_config(page_title="MBTI Top 10 국가 대시보드", layout="wide")
 
-# 메인 제목
-st.title("🔺 삼각형의 세계로 떠나자! 🔺")
-st.write("재미있게 배우는 **삼각형의 성질** ✨\n\n아래 메뉴에서 주제를 선택해 학습해 보세요 👇")
+st.title("MBTI 유형별 비율 Top 10 국가 🌍")
+st.caption("기본적으로 로컬 폴더의 CSV 파일을 불러오고, 없으면 업로드한 파일을 사용합니다.")
 
-# 사이드바 메뉴
-menu = st.sidebar.radio("📚 학습 주제", ["🏹 이등변삼각형", "📏 직각삼각형 합동조건", "💎 내심", "🌟 외심"])
+# 기본 CSV 파일 경로
+DEFAULT_FILE = "countriesMBTI_16types.csv"
 
-# 공통 함수 (퀴즈)
-def quiz(question, options, answer_idx):
-    st.subheader("🎯 퀴즈 도전!")
-    choice = st.radio(question, options)
-    if st.button("✅ 정답 확인"):
-        if choice == options[answer_idx]:
-            st.success("🎉 정답이에요! 멋져요 👍")
-        else:
-            st.error("❌ 아쉬워요! 다시 도전해 보세요 😉")
+# MBTI 16유형 목록
+MBTI_TYPES = [
+    "INTJ","INTP","ENTJ","ENTP",
+    "INFJ","INFP","ENFJ","ENFP",
+    "ISTJ","ISFJ","ESTJ","ESFJ",
+    "ISTP","ISFP","ESTP","ESFP"
+]
 
-# 이등변삼각형
-if menu == "🏹 이등변삼각형":
-    st.header("🏹 이등변삼각형의 성질")
-    st.markdown("""
-    - 두 변의 길이가 같은 삼각형 ➡️ **이등변삼각형**  
-    - 꼭짓각을 기준으로 양쪽 밑각의 크기는 **서로 같다** 👯  
-    - 꼭짓각의 이등분선은 밑변을 **수직으로 이등분**한다 ✂️  
-    """)
-    quiz("이등변삼각형에서 밑각은?", ["항상 같다", "항상 다르다", "어쩔 때는 같다"], 0)
+@st.cache_data
+def load_and_prepare(file) -> pd.DataFrame:
+    df = pd.read_csv(file)
+    # 컬럼 정규화
+    cols = {c: c.strip() for c in df.columns}
+    df = df.rename(columns=cols)
 
-# 직각삼각형 합동조건
-elif menu == "📏 직각삼각형 합동조건":
-    st.header("📏 직각삼각형의 합동조건 (RHS)")
-    st.markdown("""
-    - 직각삼각형에서의 특별한 합동조건 ✨  
-    - **RHS 합동**:  
-        1. 한 변이 **빗변(Hypotenuse)**  
-        2. 다른 한 변이 **한 직각변(Side)**  
-    - 두 조건이 같으면 두 직각삼각형은 합동 🟰  
-    """)
-    quiz("RHS 합동 조건은 무엇일까요?", ["두 밑각과 밑변", "빗변과 한 직각변", "세 변의 길이"], 1)
+    # 국가 컬럼 추론
+    country_col = None
+    for cand in ["Country", "country", "국가", "지역", "나라"]:
+        if cand in df.columns:
+            country_col = cand
+            break
+    if country_col is None:
+        # 첫 번째 컬럼을 국가로 가정
+        country_col = df.columns[0]
 
-# 내심
-elif menu == "💎 내심":
-    st.header("💎 내심의 성질")
-    st.markdown("""
-    - 삼각형 **세 내각의 이등분선**이 만나는 점 = **내심**  
-    - 내심은 삼각형 안에 있는 **원의 중심(내접원)** 🟢  
-    - 내심에서 삼각형 각 변까지의 거리는 **항상 같다** 📏  
-    """)
-    quiz("내심은 어떤 원의 중심일까요?", ["외접원", "내접원", "반지름이 없는 원"], 1)
+    # MBTI 컬럼 후보: 표준 16유형 중 존재하는 것만 사용
+    mbti_cols = [c for c in df.columns if c.upper() in MBTI_TYPES]
 
-# 외심
-elif menu == "🌟 외심":
-    st.header("🌟 외심의 성질")
-    st.markdown("""
-    - 삼각형 세 변의 **수직이등분선**이 만나는 점 = **외심**  
-    - 외심은 삼각형의 **외접원의 중심** 🟡  
-    - 외심에서 삼각형의 **세 꼭짓점까지 거리는 같다** 🎯  
-    """)
-    quiz("외심은 어떤 원의 중심일까요?", ["외접원", "내접원", "원의 둘레"], 0)
+    # 숫자화
+    for c in mbti_cols:
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+
+    # 정리
+    df = df[[country_col] + mbti_cols].copy()
+    df = df.rename(columns={country_col: "Country"})
+    return df, mbti_cols
+
+def top10_for_type(df: pd.DataFrame, mbti_col: str) -> pd.DataFrame:
+    temp = df[["Country", mbti_col]].dropna()
+    temp = temp.sort_values(mbti_col, ascending=False).head(10)
+    return temp
+
+# 1) 먼저 로컬 기본 파일 시도
+if os.path.exists(DEFAULT_FILE):
+    df, mbti_cols = load_and_prepare(DEFAULT_FILE)
+    st.success(f"✅ 로컬 파일 `{DEFAULT_FILE}` 불러옴")
+else:
+    # 2) 업로드 fallback
+    uploaded = st.file_uploader("CSV 파일을 업로드하세요", type=["csv"])
+    if uploaded:
+        df, mbti_cols = load_and_prepare(uploaded)
+        st.success("✅ 업로드한 CSV 파일 불러옴")
+    else:
+        st.warning("CSV 파일이 필요합니다. (로컬에 기본 파일이 없으니 업로드해 주세요)")
+        st.stop()
+
+# MBTI 유형 선택
+default_type = mbti_cols[0] if "INFJ" not in mbti_cols else "INFJ"
+selected_type = st.selectbox("MBTI 유형을 선택하세요", options=sorted(mbti_cols), index=sorted(mbti_cols).index(default_type))
+
+# Top10 데이터
+top10 = top10_for_type(df, selected_type)
+top10["label"] = top10[selected_type].round(2).astype(str)
+
+# Altair 차트
+bars = alt.Chart(top10).mark_bar().encode(
+    x=alt.X(f"{selected_type}:Q", title=f"{selected_type} 비율(%)"),
+    y=alt.Y("Country:N", sort="-x", title="국가"),
+    tooltip=[
+        alt.Tooltip("Country:N", title="국가"),
+        alt.Tooltip(f"{selected_type}:Q", title="비율(%)", format=".2f")
+    ]
+)
+
+text = alt.Chart(top10).mark_text(align="left", dx=4).encode(
+    x=alt.X(f"{selected_type}:Q"),
+    y=alt.Y("Country:N", sort="-x"),
+    text=alt.Text("label:N")
+)
+
+chart = (bars + text).properties(
+    title=f"💡 {selected_type} 비율이 가장 높은 국가 Top 10"
+)
+
+st.altair_chart(chart, use_container_width=True)
+
+# 데이터 미리보기
+with st.expander("데이터 미리보기 (상위 20행)"):
+    st.dataframe(df.head(20), use_container_width=True)
